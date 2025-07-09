@@ -3,25 +3,33 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
 func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
+	ctx := r.Context()
 
-	body, err := s.extractToken(ctx)
+	var cookies []*network.CookieParam
+	for _, cookie := range r.Cookies() {
+		cookies = append(cookies, &network.CookieParam{
+			Name:  cookie.Name,
+			Value: cookie.Value,
+			URL:   spotifyURL,
+		})
+	}
+
+	body, err := s.getAccessTokenPayload(ctx, cookies)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
-			slog.ErrorContext(ctx, "Failed to extract token", slog.Any("err", err))
+			slog.ErrorContext(ctx, "Failed to get access token payload", slog.Any("err", err))
 		}
-		http.Error(w, "Failed to extract token", http.StatusInternalServerError)
+		http.Error(w, "Failed to get access token payload", http.StatusInternalServerError)
 		return
 	}
 
@@ -31,7 +39,8 @@ func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) extractToken(rCtx context.Context) ([]byte, error) {
+func (s *server) getAccessTokenPayload(rCtx context.Context, cookies []*network.CookieParam) ([]byte, error) {
+	slog.DebugContext(rCtx, "Getting access token payload", slog.Int("cookieCount", len(cookies)))
 	ctx, cancel := chromedp.NewContext(s.ctx)
 	defer cancel()
 
@@ -49,17 +58,26 @@ func (s *server) extractToken(rCtx context.Context) ([]byte, error) {
 	chromedp.ListenTarget(ctx, func(ev any) {
 		switch ev := ev.(type) {
 		case *network.EventResponseReceived:
-			if !strings.HasPrefix(ev.Response.URL, "https://open.spotify.com/api/token") {
+			if !strings.HasPrefix(ev.Response.URL, spotifyTokenURL) {
 				return
 			}
-			slog.DebugContext(ctx, "Response received", slog.String("url", ev.Response.URL), slog.String("requestID", string(ev.RequestID)))
 			requestIDChan <- ev.RequestID
 		}
 	})
 
 	if err := chromedp.Run(ctx,
-		// network.Enable(),
-		chromedp.Navigate("https://open.spotify.com/"),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if len(cookies) == 0 {
+				return nil
+			}
+
+			if err := network.SetCookies(cookies).Do(ctx); err != nil {
+				return fmt.Errorf("failed to set cookies: %w", err)
+			}
+
+			return nil
+		}),
+		chromedp.Navigate(spotifyURL),
 	); err != nil {
 		return nil, err
 	}
@@ -80,6 +98,5 @@ func (s *server) extractToken(rCtx context.Context) ([]byte, error) {
 		return nil, err
 	}
 
-	slog.DebugContext(ctx, "Token extracted", slog.String("body", string(body)))
 	return body, nil
 }
