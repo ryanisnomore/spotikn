@@ -41,7 +41,7 @@ func main() {
 	if chromePath != "" {
 		execAllocatorOptions = append(execAllocatorOptions, chromedp.ExecPath(chromePath))
 	}
-	execAllocatorOptions = append(execAllocatorOptions, chromedp.Flag("headless", false))
+	// execAllocatorOptions = append(execAllocatorOptions, chromedp.Flag("headless", false))
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), execAllocatorOptions...)
 	defer allocCancel()
