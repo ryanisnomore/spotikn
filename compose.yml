@@ -1,3 +1,4 @@
+version: '3.8'
 services:
   spotify-tokener:
     image: ghcr.io/topi314/spotify-tokener:master
@@ -5,6 +6,13 @@ services:
     restart: unless-stopped
     environment:
       - SPOTIFY_TOKENER_ADDR=0.0.0.0:8080
+      - SPOTIFY_TOKENER_CHROME_PATH=/usr/bin/google-chrome
       - SPOTIFY_TOKENER_LOG_LEVEL=INFO
     ports:
       - "8080:8080"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
